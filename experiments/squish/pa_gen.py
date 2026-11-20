@@ -68,6 +68,12 @@ def main():
     ap.add_argument("--settle", type=float, default=0.5,
                     help="pause at gap height before each pass, s")
     ap.add_argument("--temp", type=int, default=240)
+    ap.add_argument("--park", default="",
+                    help="macro to run before heating/cooling, e.g.\n"
+                         "Go_To_Purge_Location, so ooze lands in the bucket")
+    ap.add_argument("--wipe", default="",
+                    help="macro to run after reaching temperature, e.g.\n"
+                         "nozzle_clean")
     ap.add_argument("--restore-pa", type=float)
     a = ap.parse_args()
 
@@ -88,7 +94,15 @@ def main():
         "; line %.2f x %.2f mm, %g -> %g mm/s, %.1f -> %.1f mm3/s" % (
             a.width, a.gap, a.v_slow, a.v_fast,
             a.width * a.gap * a.v_slow, flow_fast),
-        "M109 S%d" % (a.dry_temp if a.dry else a.temp),
+        "G90",
+        "G1 Z5 F600",
+    ]
+    if a.park:
+        g.append(a.park)
+    g.append("M109 S%d" % (a.dry_temp if a.dry else a.temp))
+    if a.wipe:
+        g.append(a.wipe)
+    g += [
         "SET_VELOCITY_LIMIT ACCEL=%d" % a.accel,
         "G90",
         "M83",
