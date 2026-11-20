@@ -91,7 +91,7 @@ Bulk streams are timestamped in **print_time**, so they share a single timebase 
 | Beacon sensitivity at ~0.3 mm | ~48–52 Hz per µm |
 | Noise, per sample | 2.9 µm RMS, dominated by tones |
 | Noise, 0.2 s averages | 0.32 µm |
-| Tones | 10 Hz + harmonics (10/20/90/100/110 Hz), up to ~2000× the floor. **Gone with heaters off → heater PWM** (`pwm_cycle_time` 0.1 s). Which heater is still unknown. |
+| Tones | 10 Hz + harmonics (10/20/90/100/110 Hz), up to ~5500× the floor. **Source: the chamber heater** (`heater_generic chamber_heater`, PWM on a 0.1 s cycle). Tested one heater at a time with the Beacon 0.5 mm above the bed: chamber 10 Hz at 5538×; nozzle and bed show no comb. (An earlier "heaters off" test was taken high above the bed, where the Beacon is far less sensitive, so it proved nothing.) Hot nozzle alone adds broad low-frequency noise (3–12 Hz, ~400×). Part-cooling fan shows up at ~240 Hz. |
 | Coil temperature at 0.3 mm gap, 250 °C nozzle, hot bed | 82–89 °C, rising ~0.1 °C/s; drift ~0.4 µm/s |
 | Squeeze force, static blob at 0.3 mm | **clear** (t = 8.2): ~0.5 µm per mm³/s, pushed apart, ~130 ms lag, grows with blob size |
 | Air extrusion (control) | flat (t = 1.0): extrusion, motor and MPC duty changes do not move the Beacon |
