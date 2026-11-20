@@ -95,6 +95,29 @@ Bulk streams are timestamped in **print_time**, so they share a single timebase 
 | Driver heat | stepper_y1 tripped OTPW at 1.2 A during CREATE_VIBRATIONS_PROFILE; bay fans at 40% |
 | Beacon accel bug | ZeroDivisionError in beacon.py `_process_samples` when a batch has one sample; patched locally (`if count > 1 else 0.0`), reported upstream |
 
+## Mechanical state found (2026-11-20)
+
+These were present during all of the day's motion measurements, so treat
+the shaper results, vibration profile, noise readings and homing thresholds
+as provisional until they are fixed and remeasured.
+
+- **Beacon mount loose (2–3 mm play).** The Beacon hangs from the bottom
+  duct, which is clamped to both 3628 fans with through-bolts (compression
+  stack, printed parts possibly ABS-GF). Bolts had lost preload; re-tightened
+  with Loctite 243. Over-tightening distorts the fan housings (one fan rubbed
+  until loosened and re-snugged). Spring washers suggested to hold preload.
+- **3 of 4 lower XY motor brackets cracked.** Dual-shear mounts; S80 motors
+  with ~80 mm shafts; drive pulley near the intact top bearing, idler pulley
+  at the bottom near the cracked bracket, so the idler belt load bends the
+  shaft. Causes to check before reprinting: belt tension, layer orientation,
+  brittle glass-filled material, screw torque.
+- **Gantry racked:** one side's rail block doesn't reach its end stop when
+  the other does. Each AWD motor homes to its own sensorless endstop, so
+  unreliable homing, the crash and uneven drivetrain stiffness can all rack it.
+- Plan: print replacement brackets on another printer; one batched rebuild
+  (brackets, Beacon mount, optionally 48 V drivers); then recalibrate Beacon,
+  axes map, shaper, vibration profile, homing thresholds and PA.
+
 ## Measured on the K3 (2026-11-20)
 
 | Finding | Numbers |
