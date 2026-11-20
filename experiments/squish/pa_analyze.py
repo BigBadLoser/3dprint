@@ -173,9 +173,12 @@ def main():
                   "left out): %s" % ",".join(map(str, dmiss)))
         dry = (td_, sd_, dmatch)
 
-    print("run: %s  (%d passes, signal in %s%s)"
-          % (a.run, len(wet), unit, ", dry subtracted" if dry else ""))
     skip = {int(x) for x in a.skip.split(",") if x.strip()}
+    used = [n for n, _, _ in grows if n in wet and n not in skip
+            and (not dry or n in dry[2])]
+    print("run: %s  (%d passes used%s, signal in %s%s)"
+          % (a.run, len(used), ", skipped %s" % ",".join(map(str, sorted(skip)))
+             if skip else "", unit, ", dry subtracted" if dry else ""))
     rows = []
     for i, pa, _y in grows:
         if i in skip or i not in wet:
