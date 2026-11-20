@@ -13,8 +13,8 @@ and Kalico `klippy/extras/*`) and still needs checking on the real machine.
 |---|---|
 | Beacon Rev H | Eddy coil (distance to bed), coil thermistor, accelerometer, contact detection in firmware |
 | Chube Conduction hotend | Ceramic heater, run with Kalico MPC (gives a heater-power signal) |
-| Mirrored Sherpa Micro | Extruder stepper; which Kraken slot/driver it is on matters (see TMC row) |
-| BTT Kraken + CM4 | 4× TMC5160 (SPI, 48 V capable) + 4× TMC2209 (UART) |
+| Mirrored Sherpa Micro | Extruder motor LDO-36STH20-1004AHG(XH): 1.0 A rated, 0.095 Nm; was run at 0.6 A (skips past ~25 mm³/s), raised to 0.8 A |
+| BTT Kraken + CM4 | Socketed (plug-in) stepper drivers; currently all TMC2209 (UART). 48 V-capable drivers on hand (type TBD) |
 | Kalico | Has `load_cell`, `load_cell_probe`, `ldc1612`, `tmc/stallguard_dump`, MPC |
 
 ## What the K3's config tells us (checked 2026-11-20)
@@ -82,6 +82,18 @@ Bulk streams are timestamped in **print_time**, so they share a single timebase 
 | Flow ratio / extrusion multiplier | none | ❌ gap |
 | First-layer inspection | none (Beacon can't see plastic) | ❌ gap |
 | Clog / jam detection | StallGuard, MPC power (coarse) | ❓ |
+
+## Motion system (2026-11-20)
+
+| Finding | Detail |
+|---|---|
+| Beacon accelerometer orientation | Mounted rotated ~90°: `accel_axes_map: y, -x, z` (was default x,y,z, so earlier shaper results had X and Y swapped) |
+| Resonances (Shake&Tune v6) | X: double peak ~121 + 132 Hz (X motion also excites Y around 120 Hz, likely toolhead twist); Y: single clean ~120 Hz. Old config had X 77.6 / Y 83.2 Hz |
+| Shaper chosen | X MZV 126 Hz, Y MZV 122 Hz; max accel per Shake&Tune ~43–46k mm/s² (config max_accel 10k) |
+| Intermittent X noise | Low-frequency (10–45 Hz) energy, a 61 Hz peak and broadband bands appeared in 2 of 3 X runs with nothing changed; cause unknown |
+| Driver noise | X/Y 2209s in spreadCycle add a lot of standstill vibration (MEASURE_AXES_NOISE ~9 all off → ~130–180 motors on); position-dependent whine on an X motor; autotune changed whine to hiss but did not lower the numbers |
+| Driver heat | stepper_y1 tripped OTPW at 1.2 A during CREATE_VIBRATIONS_PROFILE; bay fans at 40% |
+| Beacon accel bug | ZeroDivisionError in beacon.py `_process_samples` when a batch has one sample; patched locally (`if count > 1 else 0.0`), reported upstream |
 
 ## Measured on the K3 (2026-11-20)
 
