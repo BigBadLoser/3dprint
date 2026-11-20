@@ -28,7 +28,7 @@ $G noise  --temp 240 > /tmp/sq_noise.gcode
 $G air    --temp 240 > /tmp/sq_air.gcode
 $G static --temp 240 > /tmp/sq_static.gcode
 $G dry    --temp 240 --temp-on-dry > /tmp/sq_dry.gcode
-$G line   --temp 240 --y 170 > /tmp/sq_line.gcode   # different Y: fresh bed
+$G line   --temp 240 --y 120 > /tmp/sq_line.gcode   # different Y: fresh bed
 
 for m in noise air static dry line; do
   tools/kdata.py record ~/squish/$m --preset squish --gcode-file /tmp/sq_$m.gcode
@@ -39,7 +39,7 @@ Clean the blob off the plate between `static` repeats.
 
 The dry and line runs must use the **same** `--x/--y` for the subtraction to mean anything.
 The example above uses a different Y for the line run, so either regenerate dry with
-`--y 170` too, or skip `--dry` for a first look.
+`--y 120` too, or skip `--dry` for a first look.
 
 ## Analysis
 

@@ -94,8 +94,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("mode", choices=["noise", "air", "static", "line", "dry"])
-    ap.add_argument("--x", type=float, default=150.0)
-    ap.add_argument("--y", type=float, default=150.0)
+    ap.add_argument("--x", type=float, default=90.0)
+    ap.add_argument("--y", type=float, default=90.0)
     ap.add_argument("--gap", type=float, default=0.30, help="nozzle-bed gap, mm")
     ap.add_argument("--air-z", type=float, default=30.0)
     ap.add_argument("--temp", type=int, default=240)

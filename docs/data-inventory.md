@@ -17,6 +17,25 @@ and Kalico `klippy/extras/*`) and still needs checking on the real machine.
 | BTT Kraken + CM4 | 4× TMC5160 (SPI, 48 V capable) + 4× TMC2209 (UART) |
 | Kalico | Has `load_cell`, `load_cell_probe`, `ldc1612`, `tmc/stallguard_dump`, MPC |
 
+## What the K3's config tells us (checked 2026-11-20)
+
+From `kdata.py endpoints` and printer.cfg:
+
+- **Kalico v0.12.0-715.** It's too old to have `tmc/stallguard_dump`; current Kalico has it.
+- **All drivers are TMC2209 in spreadCycle** (`stealthchop_threshold: 0`). The 2209's StallGuard
+  (`SG_RESULT`) only works in StealthChop, so **extruder StallGuard is effectively unavailable**
+  even after a Kalico update. It would need a 5160 slot, or StealthChop on the extruder (not recommended).
+- **MPC is active** on the extruder (`control = mpc`, `heater_power: 100`). The filament constants are set
+  for ASA (density 1.07, heat capacity 1.7), so `loss_filament` is only right for ASA-like materials.
+- **The Beacon sits 23 mm left of the nozzle** (`x_offset: -23`). It measures the bed 23 mm away from where
+  the nozzle presses, so in the squish test it sees gantry lift plus bed tilt, not the spot under the nozzle.
+- **The bed is held on springs** (the position_max comment). That's compliance in the force path, which
+  should *help* the squish test compared with a fully rigid bed.
+- **The Z gap at print temperature depends on the macro chain.** Contact homing runs at 150 °C, then
+  `_BEACON_SET_NOZZLE_TEMP_OFFSET` corrects for nozzle growth, then `print_start` adds a further −0.03 mm.
+  Experiments that rely on a small gap should run after `print_start`.
+- Pressure advance in config: 0.06. Nozzle: 0.5 mm. Bed: 180 × 180 mm, mesh area X 20–150, Y 25–155.
+
 ## Signals available without new hardware
 
 All of these are reachable on the Klippy API socket (`~/printer_data/comms/klippy.sock`).
@@ -58,8 +77,8 @@ Bulk streams are timestamped in **print_time**, so they share a single timebase 
 | Bed mesh, Z offset, thermal Z | Beacon scan + contact | ✅ done (already set up) |
 | Heater model | Kalico MPC | ✅ done |
 | Input shaper | Beacon accelerometer | ✅ works, but results are "iffy", worth revisiting |
-| Pressure advance | Beacon squish-force (**unproven**), StallGuard (coarse) | ❓ test needed |
-| Max volumetric flow | MPC power, StallGuard, accel (skip clicks) | ❓ test needed |
+| Pressure advance | Beacon squish-force (**unproven**); StallGuard unusable on the K3 (2209 in spreadCycle) | ❓ test needed |
+| Max volumetric flow | MPC power, accel (skip clicks) | ❓ test needed |
 | Flow ratio / extrusion multiplier | none | ❌ gap |
 | First-layer inspection | none (Beacon can't see plastic) | ❌ gap |
 | Clog / jam detection | StallGuard, MPC power (coarse) | ❓ |
