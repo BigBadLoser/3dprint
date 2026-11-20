@@ -19,7 +19,12 @@ Stream SPEC is an endpoint path plus optional params, e.g.
     motion_report/dump_stepper:name=extruder
     tmc/stallguard_dump:name=extruder
 
-Use --preset squish for the set needed by experiments/squish.
+Use --preset squish for the streams experiments/squish needs
+(--preset squish-full adds accelerometer, extruder steps and StallGuard).
+
+A G-code file may contain the line
+    ; --- record from here ---
+Everything before it (heating, cooling) runs first, unrecorded.
 """
 import argparse
 import json
@@ -33,14 +38,12 @@ import time
 DEFAULT_SOCKET = os.path.expanduser("~/printer_data/comms/klippy.sock")
 
 PRESETS = {
+    # what the squish analyses use (~6 MB per minute of recording)
     "squish": {
         "streams": [
             "beacon/dump",
-            "beacon/dump_accel",
             "motion_report/dump_trapq:name=toolhead",
             "motion_report/dump_trapq:name=extruder",
-            "motion_report/dump_stepper:name=extruder",
-            "tmc/stallguard_dump:name=extruder",
         ],
         "status": [
             "extruder=temperature,target,power,pressure_advance,"
@@ -49,6 +52,23 @@ PRESETS = {
         ],
     },
 }
+# everything, including the heavy streams (accelerometer, every extruder step)
+PRESETS["squish-full"] = {
+    "streams": PRESETS["squish"]["streams"] + [
+        "beacon/dump_accel",
+        "motion_report/dump_stepper:name=extruder",
+        "tmc/stallguard_dump:name=extruder",
+    ],
+    "status": PRESETS["squish"]["status"],
+}
+
+RECORD_MARKER = "; --- record from here ---"
+MIN_FREE_MB = 500
+
+
+def free_mb(path):
+    st = os.statvfs(path)
+    return st.f_bavail * st.f_frsize / 1e6
 
 
 class KlippyClient:
@@ -176,10 +196,27 @@ def cmd_record(args):
     if not args.gcode_file and args.duration is None:
         sys.exit("give --gcode-file or --duration")
 
+    parent = os.path.dirname(os.path.abspath(args.outdir)) or "."
+    if os.path.isdir(parent) and free_mb(parent) < MIN_FREE_MB:
+        sys.exit("only %.0f MB free on the disk: free some space first "
+                 "(need %d MB)" % (free_mb(parent), MIN_FREE_MB))
+    prep = script = None
+    if args.gcode_file:
+        with open(args.gcode_file) as f:
+            script = f.read()
+        if RECORD_MARKER in script:
+            prep, script = script.split(RECORD_MARKER, 1)
     os.makedirs(args.outdir, exist_ok=False)
     if args.gcode_file:
         shutil.copy(args.gcode_file, os.path.join(args.outdir, "experiment.gcode"))
     kc = KlippyClient(args.socket)
+    if prep and prep.strip():
+        print("preparing (heating/cooling, not recorded) ...")
+        try:
+            kc.call("gcode/script", {"script": prep}, timeout=None)
+        except KeyboardInterrupt:
+            kc.close()
+            sys.exit("interrupted during preparation; nothing recorded")
     meta = {
         "started_host_time": time.time(),
         "argv": sys.argv,
@@ -189,16 +226,24 @@ def cmd_record(args):
         "errors": {},
     }
     files, counts = {}, {}
+    disk_full = threading.Event()
 
     def make_handler(key):
         f = files[key]
         lock = threading.Lock()
 
         def handler(msg):
+            if disk_full.is_set():
+                return
             line = json.dumps({"recv": time.time(), "params": msg.get("params")})
             with lock:
-                f.write(line + "\n")
-                counts[key] += 1
+                try:
+                    f.write(line + "\n")
+                    counts[key] += 1
+                except OSError as e:
+                    disk_full.set()
+                    print("\nWRITE FAILED (%s): recording stopped; the printer "
+                          "keeps running the G-code" % e)
 
         return handler
 
@@ -236,15 +281,14 @@ def cmd_record(args):
     t0 = time.time()
     try:
         if args.gcode_file:
-            with open(args.gcode_file) as f:
-                script = f.read()
             print("running %s ..." % args.gcode_file)
             kc.call("gcode/script", {"script": script}, timeout=None)
             print("gcode finished")
         else:
             time.sleep(args.duration)
     except KeyboardInterrupt:
-        print("interrupted")
+        print("interrupted (the printer may still be running the G-code; "
+              "check Mainsail)")
     except Exception as e:
         meta["errors"]["gcode"] = str(e)
         print("gcode error: %s" % e)
@@ -255,8 +299,12 @@ def cmd_record(args):
     meta["message_counts"] = {
         spec: counts["s%d" % i] for i, spec in enumerate(streams)
     }
+    meta["disk_full"] = disk_full.is_set()
     for f in files.values():
-        f.close()
+        try:
+            f.close()
+        except OSError:
+            pass
     with open(os.path.join(args.outdir, "meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
     print("wrote %s" % args.outdir)

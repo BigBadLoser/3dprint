@@ -94,6 +94,7 @@ def main():
         "M83",
         "G1 Z5 F600",
         "; warmup passes: %d" % a.warmup,
+        "; --- record from here ---",
     ]
     if a.dry and a.dry_retract:
         g.append("G1 E-%.2f F1800 ; retract so the dry run doesn't ooze" % a.dry_retract)
