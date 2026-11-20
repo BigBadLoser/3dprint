@@ -29,8 +29,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analyze as A  # noqa: E402
 
 
-def passes(run, gap_tol=0.05):
-    """Find passes in the toolhead trapq: runs of +X moves at the lowest Z.
+def passes(run, gap_tol=0.5):
+    """Find passes in the toolhead trapq: runs of +X moves near the lowest Z.
+
+    gap_tol must cover bed-mesh Z changes across the rows but stay below the
+    1 mm lift between passes.
 
     Returns a list of dicts with start/end and the speed-up and slow-down
     times (start of the accel and decel segments between slow and fast)."""
@@ -63,19 +66,40 @@ def passes(run, gap_tol=0.05):
         if t_acc is None or t_dec is None:
             continue
         out.append({"t0": gm[0][0], "t1": gm[-1][0] + gm[-1][1],
-                    "t_acc": t_acc, "t_dec": t_dec, "vmax": vmax})
+                    "t_acc": t_acc, "t_dec": t_dec, "vmax": vmax,
+                    "y": gm[0][4][1]})
     return out
 
 
-def pass_pas(run):
-    """(number of warm-up passes, PA of each measured pass) from the G-code."""
+def pass_rows(run):
+    """Measured passes from the G-code: list of (pass number, PA, row Y)."""
     p = os.path.join(run, "experiment.gcode")
     if not os.path.exists(p):
-        return 0, None
-    txt = open(p).read()
-    m = re.search(r"; warmup passes: (\d+)", txt)
-    return (int(m.group(1)) if m else 0,
-            [float(x.group(1)) for x in re.finditer(r"; pass \d+ pa=([\d.]+)", txt)])
+        return None
+    rows, cur = [], None
+    for line in open(p):
+        m = re.match(r"; pass (\d+) pa=([\d.]+)", line)
+        if m:
+            cur = (int(m.group(1)), float(m.group(2)))
+            continue
+        if line.startswith("; warmup pass"):
+            cur = None
+            continue
+        m = re.match(r"G1 X[\d.]+ Y([\d.]+) F", line)
+        if m and cur is not None:
+            rows.append((cur[0], cur[1], float(m.group(1))))
+            cur = None
+    return rows
+
+
+def match_rows(rows, ps, tol=1.0):
+    """Pair each G-code row with the detected pass that starts on its Y."""
+    out = {}
+    for n, pa, y in rows:
+        best = min(ps, key=lambda p: abs(p["y"] - y), default=None)
+        if best is not None and abs(best["y"] - y) < tol:
+            out[n] = best
+    return out
 
 
 def signal(run, comb_hz=10.0):
@@ -130,30 +154,35 @@ def main():
     a = ap.parse_args()
 
     t, s, rate, unit = signal(a.run, a.comb_hz)
-    ps = passes(a.run)
-    nwarm, pas = pass_pas(a.run)
-    ps = ps[nwarm:]
-    if not ps:
-        sys.exit("no passes found in the toolhead trapq")
-    if pas is None or len(pas) != len(ps):
-        sys.exit("found %d passes but %s PA values in experiment.gcode"
-                 % (len(ps), "no" if pas is None else len(pas)))
+    grows = pass_rows(a.run)
+    if not grows:
+        sys.exit("no pass list in experiment.gcode (was the run made with pa_gen.py?)")
+    wet = match_rows(grows, passes(a.run))
+    missing = [n for n, _, _ in grows if n not in wet]
+    if missing:
+        print("passes not found in the motion data (left out): %s"
+              % ",".join(map(str, missing)))
 
     dry = None
     if a.dry:
         td_, sd_, _, _ = signal(a.dry, a.comb_hz)
-        pd = passes(a.dry)[pass_pas(a.dry)[0]:]
-        if len(pd) != len(ps):
-            sys.exit("dry run has %d passes, wet run %d" % (len(pd), len(ps)))
-        dry = (td_, sd_, pd)
+        dmatch = match_rows(pass_rows(a.dry) or grows, passes(a.dry))
+        dmiss = [n for n, _, _ in grows if n in wet and n not in dmatch]
+        if dmiss:
+            print("passes missing from the dry run (no subtraction for them, "
+                  "left out): %s" % ",".join(map(str, dmiss)))
+        dry = (td_, sd_, dmatch)
 
     print("run: %s  (%d passes, signal in %s%s)"
-          % (a.run, len(ps), unit, ", dry subtracted" if dry else ""))
+          % (a.run, len(wet), unit, ", dry subtracted" if dry else ""))
     skip = {int(x) for x in a.skip.split(",") if x.strip()}
     rows = []
-    for i, (p, pa) in enumerate(zip(ps, pas)):
-        if i in skip:
+    for i, pa, _y in grows:
+        if i in skip or i not in wet:
             continue
+        if dry and i not in dry[2]:
+            continue
+        p = wet[i]
         m = (t >= p["t0"] - 0.6) & (t <= p["t1"] + 0.1)
         tp, sp = t[m], s[m].copy()
         if dry:
