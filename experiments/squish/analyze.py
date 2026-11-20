@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Analyze a squish run recorded by tools/kdata.py.
 
-Fits   beacon_dist(t) = k * flow(t - lag) + slow drift
+Fits   beacon_freq(t) = k * flow(t - lag) + slow drift
+(on samples at the test height; converted to µm where the Beacon model covers it)
 where flow(t) is the commanded volumetric flow from the extruder trapq.
 
 Prints the Beacon sample rate, the noise floor, the best lag, the gain k
@@ -38,20 +39,58 @@ def find_stream(run, prefix):
 
 
 def load_beacon(run):
+    """All Beacon samples. dist is NaN outside the model range (0.2–5 mm);
+    freq is always valid, so the analysis works on freq."""
     path, header = find_stream(run, "beacon/dump")
     if path is None:
         sys.exit("%s: no beacon/dump stream" % run)
     cols = header["header"]
-    it, idist, ifreq, itemp = (cols.index(c) for c in ("time", "dist", "freq", "temp"))
+    it, idist, ifreq, itemp, ipos = (
+        cols.index(c) for c in ("time", "dist", "freq", "temp", "pos"))
     rows = []
     for m in load_jsonl(path):
         for r in m["params"] or []:
-            if r[idist] is None:
+            if r[ifreq] is None:
                 continue
-            rows.append((r[it], r[idist], r[ifreq], r[itemp]))
+            d = r[idist]
+            pos = r[ipos]
+            rows.append((r[it], d if d is not None else np.nan, r[ifreq],
+                         r[itemp], pos[2] if pos else np.nan))
     a = np.array(rows, dtype=float)
     a = a[np.argsort(a[:, 0])]
-    return {"t": a[:, 0], "dist": a[:, 1], "freq": a[:, 2], "temp": a[:, 3]}
+    a[~np.isfinite(a[:, 1]), 1] = np.nan
+    return {"t": a[:, 0], "dist": a[:, 1], "freq": a[:, 2], "temp": a[:, 3],
+            "z": a[:, 4]}
+
+
+def test_window(b):
+    """Samples taken at the run's test height (where it spends most time)."""
+    z = b["z"]
+    if not np.isfinite(z).any():
+        return np.ones_like(z, dtype=bool), float("nan")
+    zt = float(np.nanmedian(z))
+    # exclude the Z descent/lift (5 mm/s) but keep slow mesh-following Z
+    # changes during XY moves; pad 50 ms either side of any fast Z motion
+    vz = np.abs(np.gradient(z, b["t"]))
+    fast = vz > 0.5
+    pad = 50
+    if fast.any():
+        fast = np.convolve(fast.astype(float), np.ones(2 * pad + 1), "same") > 0
+    return (np.abs(z - zt) < 0.2) & ~fast, zt
+
+
+def um_per_hz(b, w):
+    """Local slope of the Beacon model at the test height, from samples in
+    this run where dist is valid near that height (e.g. the descent)."""
+    dw = b["dist"][w]
+    if not np.isfinite(dw).any():
+        return None
+    d0 = np.nanmedian(dw)
+    m = np.isfinite(b["dist"]) & (np.abs(b["dist"] - d0) < 0.5)
+    if m.sum() < 50 or np.ptp(b["dist"][m]) < 0.05:
+        return None
+    slope = np.polyfit(b["freq"][m], b["dist"][m], 1)[0]
+    return slope * 1000.0
 
 
 def load_trapq(run, name):
@@ -112,51 +151,67 @@ def main():
     a = ap.parse_args()
 
     b = load_beacon(a.run)
-    t = b["t"]
-    dt = np.diff(t)
-    rate = 1.0 / np.median(dt)
-    d_um = (b["dist"] - b["dist"].mean()) * 1000.0
+    rate = 1.0 / np.median(np.diff(b["t"]))
+    dt_all = np.diff(b["t"])
+    w, zt = test_window(b)
+    k_um = um_per_hz(b, w)
+    t = b["t"][w]
+    sig = b["freq"][w] - b["freq"][w].mean()          # Hz
 
     e_moves = load_trapq(a.run, "extruder")
     flow = trapq_velocity(e_moves, t) * FIL_AREA if e_moves else np.zeros_like(t)
 
     if a.dry:
         bd = load_beacon(a.dry)
+        wd, _ = test_window(bd)
         off = line_start(load_trapq(a.run, "toolhead")) - \
             line_start(load_trapq(a.dry, "toolhead"))
-        dry_um = (bd["dist"] - bd["dist"].mean()) * 1000.0
-        d_um = d_um - np.interp(t, bd["t"] + off, dry_um)
+        dry = bd["freq"][wd] - bd["freq"][wd].mean()
+        sig = sig - np.interp(t, bd["t"][wd] + off, dry)
+
+    def both(hz):
+        return "%.3f Hz" % hz + ("  (%.3f µm)" % abs(hz * k_um) if k_um else "")
 
     print("run: %s" % a.run)
-    print("beacon: %d samples, %.1f Hz median rate, %.1f s, coil %.1f–%.1f °C"
-          % (len(t), rate, np.ptp(t), b["temp"].min(), b["temp"].max()))
-    print("sample interval jitter: p1 %.2f ms, p99 %.2f ms, max gap %.1f ms"
-          % (np.percentile(dt, 1) * 1e3, np.percentile(dt, 99) * 1e3, dt.max() * 1e3))
+    print("beacon: %d samples, %.1f Hz median rate, %.1f s total, coil %.1f–%.1f °C"
+          % (len(b["t"]), rate, np.ptp(b["t"]), b["temp"].min(), b["temp"].max()))
+    print("sample interval: p1 %.2f ms, p99 %.2f ms, max gap %.1f ms"
+          % (np.percentile(dt_all, 1) * 1e3, np.percentile(dt_all, 99) * 1e3,
+             dt_all.max() * 1e3))
+    print("test window: Z %.2f, %d samples (%.1f s); Beacon freq %.0f Hz"
+          % (zt, len(t), np.ptp(t) if len(t) else 0, b["freq"][w].mean()))
+    print("scale: " + ("%.4f µm per Hz at this height" % k_um if k_um else
+                       "no µm conversion (outside Beacon model range), Hz only"))
+    tt = b["temp"][w]
+    print("coil temp in window: %.2f → %.2f °C (drift %.3f °C/s)"
+          % (tt[0], tt[-1], np.polyfit(t, tt, 1)[0]))
+    drift = np.polyfit(t, sig, 1)[0]
+    print("signal drift in window: " + both(drift) + " per s")
 
     quiet = flow == 0
-    if e_moves and quiet.sum() > 50:
-        # noise = high-pass residual in quiet periods (remove slow drift)
-        q = d_um[quiet]
-        k = max(1, int(rate * 0.2))
-        hp = q - np.convolve(q, np.ones(k) / k, mode="same")
-        print("noise (quiet, 0.2 s high-pass): %.3f µm RMS" % hp[k:-k].std())
-    else:
-        print("noise (whole trace, detrended): %.3f µm RMS"
-              % np.std(d_um - np.polyval(np.polyfit(t, d_um, 2), t)))
+    q = sig[quiet] if (e_moves and quiet.sum() > 50) else sig
+    kk = max(1, int(rate * 0.2))
+    hp = q - np.convolve(q, np.ones(kk) / kk, mode="same")
+    print("noise (0.2 s high-pass): " + both(hp[kk:-kk].std()) + " RMS")
+    blocks = len(q) // kk
+    if blocks > 3:
+        means = q[:blocks * kk].reshape(blocks, kk).mean(axis=1)
+        print("noise of 0.2 s averages: " + both(np.diff(means).std() / np.sqrt(2)))
 
     if not e_moves or not np.any(flow):
-        print("no extrusion in this run, so no flow fit (noise/dry run)")
+        print("no extrusion in this window, so no flow fit (noise/dry run)")
         return
 
     lags = np.arange(0.0, a.max_lag, 1.0 / rate)
-    sse, lag, coef, resid = fit(t, d_um, flow, lags)
+    sse, lag, coef, resid = fit(t, sig, flow, lags)
     gain = coef[0]
     fmax, fmin = flow.max(), flow[flow > 0].min()
     step = gain * (fmax - fmin)
     noise = resid.std()
     print("best lag: %.1f ms" % (lag * 1e3))
-    print("gain: %+.4f µm per mm³/s  (positive = nozzle/bed pushed apart)" % gain)
-    print("lo→hi step (%.1f→%.1f mm³/s): %+.3f µm vs residual %.3f µm RMS → SNR %.1f"
+    print("gain: %+.5f Hz per mm³/s" % gain + (
+        "  (%+.4f µm per mm³/s; + = pushed apart)" % (gain * k_um) if k_um else ""))
+    print("lo→hi step (%.1f→%.1f mm³/s): %+.4f Hz vs residual %.4f Hz RMS → SNR %.1f"
           % (fmin, fmax, step, noise, abs(step) / noise if noise else float("inf")))
     print("verdict hint: SNR > 5 promising, 1–5 marginal (average more cycles), < 1 not visible")
 
@@ -171,14 +226,14 @@ def main():
         t0 = t[0]
         ax[0].plot(t - t0, flow, lw=1)
         ax[0].set_ylabel("flow mm³/s")
-        ax[1].plot(t - t0, d_um, lw=0.6, label="beacon")
+        ax[1].plot(t - t0, sig, lw=0.6, label="beacon")
         f_lag = np.interp(t - lag, t, flow)
         tn = (t - t.mean()) / (np.ptp(t) or 1.0)
         model = coef[0] * f_lag + coef[1] + coef[2] * tn + coef[3] * tn ** 2
         ax[1].plot(t - t0, model, lw=1, label="fit")
-        ax[1].set_ylabel("dist µm")
+        ax[1].set_ylabel("freq Hz (detrended)")
         ax[1].legend(loc="upper right")
-        ax[2].plot(t - t0, b["temp"], lw=1)
+        ax[2].plot(t - t0, b["temp"][w], lw=1)
         ax[2].set_ylabel("coil °C")
         ax[2].set_xlabel("s")
         fig.tight_layout()
