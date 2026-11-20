@@ -77,11 +77,28 @@ Bulk streams are timestamped in **print_time**, so they share a single timebase 
 | Bed mesh, Z offset, thermal Z | Beacon scan + contact | ✅ done (already set up) |
 | Heater model | Kalico MPC | ✅ done |
 | Input shaper | Beacon accelerometer | ✅ works, but results are "iffy", worth revisiting |
-| Pressure advance | Beacon squish-force (**unproven**); StallGuard unusable on the K3 (2209 in spreadCycle) | ❓ test needed |
-| Max volumetric flow | MPC power, accel (skip clicks) | ❓ test needed |
+| Pressure advance | Beacon squish-force while moving (signal **proven**, PA method in progress); StallGuard unusable (2209 in spreadCycle) | 🟡 in progress |
+| Max volumetric flow | Beacon squish-force, MPC power, accel (skip clicks) | ❓ test needed |
 | Flow ratio / extrusion multiplier | none | ❌ gap |
 | First-layer inspection | none (Beacon can't see plastic) | ❌ gap |
 | Clog / jam detection | StallGuard, MPC power (coarse) | ❓ |
+
+## Measured on the K3 (2026-11-20)
+
+| Finding | Numbers |
+|---|---|
+| Beacon stream | 1000 Hz, no dropouts, every interval exactly 1 ms |
+| Beacon sensitivity at ~0.3 mm | ~48–52 Hz per µm |
+| Noise, per sample | 2.9 µm RMS, dominated by tones |
+| Noise, 0.2 s averages | 0.32 µm |
+| Tones | 10 Hz + harmonics (10/20/90/100/110 Hz), up to ~2000× the floor. **Gone with heaters off → heater PWM** (`pwm_cycle_time` 0.1 s). Which heater is still unknown. |
+| Coil temperature at 0.3 mm gap, 250 °C nozzle, hot bed | 82–89 °C, rising ~0.1 °C/s; drift ~0.4 µm/s |
+| Squeeze force, static blob at 0.3 mm | **clear** (t = 8.2): ~0.5 µm per mm³/s, pushed apart, ~130 ms lag, grows with blob size |
+| Air extrusion (control) | flat (t = 1.0): extrusion, motor and MPC duty changes do not move the Beacon |
+| Line at 0.3 mm gap, 0.6 mm wide, speed-coupled flow | not seen |
+| Pressure advance | Klipper/Kalico only apply PA to moves with XY motion, so it must be tested while moving (`pa_gen.py`). First run (0.25 gap, 0.75 wide, 20→70 mm/s) gave a weak, noisy trend; the dry run oozed. Rerun pending with ooze-free dry, warm-up pass, 4 repeats. |
+| Extruder limits | 0.2 mm gap × 1.0 mm line skipped the Sherpa Micro (run_current 0.6 A) even at 16 mm³/s; skipping chewed the filament and caused silent slip later |
+| Disk | a recording of all streams through a long heat/cool wait filled the CM4; recorder now skips heavy streams and the prep phase |
 
 ## Gaps and how to fill them
 
