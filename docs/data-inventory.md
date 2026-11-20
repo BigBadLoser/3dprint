@@ -96,7 +96,7 @@ Bulk streams are timestamped in **print_time**, so they share a single timebase 
 | Squeeze force, static blob at 0.3 mm | **clear** (t = 8.2): ~0.5 µm per mm³/s, pushed apart, ~130 ms lag, grows with blob size |
 | Air extrusion (control) | flat (t = 1.0): extrusion, motor and MPC duty changes do not move the Beacon |
 | Line at 0.3 mm gap, 0.6 mm wide, speed-coupled flow | not seen |
-| Pressure advance | Klipper/Kalico only apply PA to moves with XY motion, so it must be tested while moving (`pa_gen.py`). First run (0.25 gap, 0.75 wide, 20→70 mm/s) gave a weak, noisy trend; the dry run oozed. Rerun pending with ooze-free dry, warm-up pass, 4 repeats. |
+| Pressure advance | Klipper/Kalico only apply PA to moves with XY motion, so it is tested while moving (`pa_gen.py`). **Run pa_5** (0.25 gap, 0.75 wide, 20→70 mm/s, 24 passes, PA 0–0.10 ×4, ooze-free dry, chamber heater off, bed 110): M falls steadily with PA (per-PA means +0.67, +0.62, +0.44, +0.32, −0.04, −0.04; repeats agree). Zero crossing ≈ **0.078** (per-PA means) / 0.090 ± 0.007 (straight line). Config PA is 0.06. Flattens at 0.08–0.10; A_up negative at every PA, so the zero of M may not equal the visually best PA. **Not yet checked against a printed PA test.** |
 | Extruder limits | 0.2 mm gap × 1.0 mm line skipped the Sherpa Micro (run_current 0.6 A) even at 16 mm³/s; skipping chewed the filament and caused silent slip later |
 | Disk | a recording of all streams through a long heat/cool wait filled the CM4; recorder now skips heavy streams and the prep phase |
 
