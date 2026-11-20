@@ -181,6 +181,94 @@ def spectrum_peaks(x, rate, both, n=4096, top=5):
           + (", ".join(peaks) if peaks else "none, noise is broadband"))
 
 
+def edge_mask(t, flow, margin=0.12):
+    """True near commanded flow changes (excluded from hum estimation)."""
+    ch = np.flatnonzero(np.abs(np.diff(flow)) > 0.5)
+    m = np.zeros(len(t), dtype=bool)
+    for i in ch:
+        m |= np.abs(t - t[i]) < margin
+    return m
+
+
+def remove_hum(t, x, f0, rate, exclude, chunk_s=2.0):
+    """Subtract a periodic template at f0 (and all its harmonics).
+
+    Unlike a moving average this keeps step edges sharp. The template is
+    estimated from the residual after removing the slow signal, in sliding
+    chunks (heater duty, and so the hum shape, changes over time), skipping
+    samples near flow edges."""
+    n = max(2, int(round(rate / f0)))
+    slow = np.convolve(x, np.ones(n) / n, mode="same")
+    r = x - slow
+    ph = (np.floor(((t * f0) % 1.0) * n).astype(int)) % n
+    hum = np.zeros_like(x)
+    c = int(chunk_s * rate)
+    for s0 in range(0, len(x), c):
+        e0, e1 = max(0, s0 - c // 2), min(len(x), s0 + c + c // 2)
+        good = ~exclude[e0:e1]
+        cnt = np.bincount(ph[e0:e1][good], minlength=n)
+        tot = np.bincount(ph[e0:e1][good], weights=r[e0:e1][good], minlength=n)
+        tmpl = tot / np.maximum(cnt, 1)
+        hum[s0:s0 + c] = tmpl[ph[s0:s0 + c]]
+    return x - hum
+
+
+def edge_metrics(t, sig, flow, rate, pre=(-0.30, -0.05), post=(0.50, 0.75)):
+    """Average normalised step response at lo→hi (rise) and hi→lo (fall)
+    flow edges. 0 = level before the edge, 1 = level after it."""
+    fmin, fmax = flow_levels(flow)
+    mid = 0.5 * (fmin + fmax)
+    hi = flow > mid
+    grid = np.arange(-0.1, post[1], 1.0 / rate)
+    out = {}
+    for kind, a_hi, b_hi in (("rise", False, True), ("fall", True, False)):
+        idx = [i for i in range(1, len(t))
+               if hi[i - 1] == a_hi and hi[i] == b_hi and
+               flow[i - 1] > 0 and flow[i] > 0 and t[i] - t[i - 1] < 0.01]
+        curves = []
+        for i in idx:
+            te = t[i]
+            mp = (t > te + pre[0]) & (t < te + pre[1])
+            mq = (t > te + post[0]) & (t < te + post[1])
+            if mp.sum() < 20 or mq.sum() < 20 or t[-1] < te + post[1]:
+                continue
+            a0, a1 = sig[mp].mean(), sig[mq].mean()
+            if a1 == a0:
+                continue
+            curves.append((np.interp(te + grid, t, sig) - a0) / (a1 - a0))
+        if not curves:
+            continue
+        avg = np.mean(curves, axis=0)
+        k = max(1, int(rate * 0.015))
+        sm = np.convolve(avg, np.ones(k) / k, mode="same")
+        after = grid >= 0
+
+        def cross(level):
+            j = np.flatnonzero(after & (sm >= level))
+            return float(grid[j[0]]) if len(j) else float("nan")
+
+        out[kind] = {
+            "n": len(curves),
+            "t50": cross(0.5),
+            "t90": cross(0.9),
+            "overshoot": float(sm[after & (grid < post[0])].max() - 1.0),
+            "grid": grid.tolist(),
+            "curve": avg.tolist(),
+        }
+    return out
+
+
+def gcode_pa(run):
+    """PA the run was made with, from the copied G-code (kdata saves it)."""
+    p = os.path.join(run, "experiment.gcode")
+    if not os.path.exists(p):
+        return None
+    for line in open(p):
+        if line.startswith("SET_PRESSURE_ADVANCE ADVANCE="):
+            return float(line.split("=")[1].split()[0])
+    return None
+
+
 def fit(t, d, flow, lags):
     """Least squares over lag: d = k*flow(t-lag) + poly2(t) + c."""
     tn = (t - t.mean()) / (np.ptp(t) or 1.0)
@@ -196,6 +284,27 @@ def fit(t, d, flow, lags):
     return best
 
 
+def process(run, comb_hz=10.0):
+    """Shared pipeline for the sweep summary: window, hum removal, edges."""
+    b = load_beacon(run)
+    rate = 1.0 / np.median(np.diff(b["t"]))
+    w, _ = test_window(b)
+    k_um = um_per_hz(b, w)
+    t = b["t"][w]
+    sig = b["freq"][w] - b["freq"][w].mean()
+    e_moves = load_trapq(run, "extruder")
+    flow = trapq_velocity(e_moves, t) * FIL_AREA if e_moves else np.zeros_like(t)
+    if comb_hz > 0:
+        sig = remove_hum(t, sig, comb_hz, rate, edge_mask(t, flow))
+    res = {"run": run, "pa": gcode_pa(run), "k_um": k_um}
+    if np.any(flow):
+        _, lag, coef, _ = fit(t, sig, flow, np.arange(0.0, 0.5, 1.0 / rate))
+        res["lag"] = lag
+        res["gain_um"] = coef[0] * k_um if k_um else None
+        res["edges"] = edge_metrics(t, sig, flow, rate)
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawTextHelpFormatter)
@@ -203,6 +312,11 @@ def main():
     ap.add_argument("--dry", help="dry-run directory to subtract")
     ap.add_argument("--plot", action="store_true")
     ap.add_argument("--max-lag", type=float, default=0.5)
+    ap.add_argument("--hum", choices=["template", "boxcar", "none"],
+                    default="boxcar",
+                    help="how to remove the heater-PWM tone: boxcar (default,\n"
+                         "smears edges ~100 ms) or template (experimental,\n"
+                         "keeps edges; not yet validated)")
     ap.add_argument("--comb-hz", type=float, default=10.0,
                     help="remove this tone and its harmonics with a moving\n"
                          "average over one period (10 Hz = Klipper heater PWM\n"
@@ -229,9 +343,11 @@ def main():
         sig = sig - np.interp(t, bd["t"][wd] + off, dry)
 
     raw = sig.copy()
-    if a.comb_hz > 0:
-        n = max(1, int(round(rate / a.comb_hz)))
+    n = max(1, int(round(rate / a.comb_hz))) if a.comb_hz > 0 else 1
+    if a.comb_hz > 0 and a.hum == "boxcar":
         sig = np.convolve(sig, np.ones(n) / n, mode="same")
+    elif a.comb_hz > 0 and a.hum == "template":
+        sig = remove_hum(t, sig, a.comb_hz, rate, edge_mask(t, flow))
 
     def both(hz):
         return "%.3f Hz" % hz + ("  (%.3f µm)" % abs(hz * k_um) if k_um else "")
@@ -255,9 +371,8 @@ def main():
     quiet = flow == 0
     use_quiet = e_moves and quiet.sum() > 50
     q = sig[quiet] if use_quiet else sig
-    if a.comb_hz > 0:
-        print("comb filter: %.0f Hz and harmonics removed (%d-sample average)"
-              % (a.comb_hz, n))
+    if a.comb_hz > 0 and a.hum != "none":
+        print("hum removal: %s at %.0f Hz and harmonics" % (a.hum, a.comb_hz))
     kk = max(1, int(rate * 0.2))
     hp = q - np.convolve(q, np.ones(kk) / kk, mode="same")
     print("noise after filter (0.2 s high-pass): " + both(hp[kk:-kk].std()) + " RMS")
@@ -302,6 +417,18 @@ def main():
         print("verdict: %s (|t| > 5 clear, 3–5 marginal, < 3 not seen)" % verdict)
     else:
         print("need 2+ cycles for a verdict")
+
+    pa = gcode_pa(a.run)
+    em = edge_metrics(t, sig, flow, rate)
+    print("pressure advance in this run: %s" % ("%.4f" % pa if pa is not None else "unknown"))
+    for kind in ("rise", "fall"):
+        if kind in em:
+            e = em[kind]
+            print("%s edges (n=%d): t50 %.0f ms, t90 %.0f ms, overshoot %+.0f%%"
+                  % (kind, e["n"], e["t50"] * 1e3, e["t90"] * 1e3, e["overshoot"] * 100))
+    with open(os.path.join(a.run, "edges.json"), "w") as f:
+        json.dump({"pa": pa, "gain_um_per_flow": (gain * k_um) if k_um else None,
+                   "lag": lag, "edges": em}, f)
 
     if a.plot:
         try:

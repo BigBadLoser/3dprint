@@ -24,6 +24,7 @@ Use --preset squish for the set needed by experiments/squish.
 import argparse
 import json
 import os
+import shutil
 import socket
 import sys
 import threading
@@ -176,6 +177,8 @@ def cmd_record(args):
         sys.exit("give --gcode-file or --duration")
 
     os.makedirs(args.outdir, exist_ok=False)
+    if args.gcode_file:
+        shutil.copy(args.gcode_file, os.path.join(args.outdir, "experiment.gcode"))
     kc = KlippyClient(args.socket)
     meta = {
         "started_host_time": time.time(),
