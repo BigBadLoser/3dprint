@@ -99,7 +99,11 @@ def main():
     ]
     if a.park:
         g.append(a.park)
+    if a.dry:
+        g.append("M106 S255 ; part fan speeds up the cool-down (not recorded)")
     g.append("M109 S%d" % (a.dry_temp if a.dry else a.temp))
+    if a.dry:
+        g.append("M107")
     if a.wipe:
         g.append(a.wipe)
     g += [
