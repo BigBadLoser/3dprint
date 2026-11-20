@@ -144,7 +144,7 @@ def per_cycle_gains(t, sig, flow, lag):
 
 
 def spectrum_peaks(x, rate, both, n=4096, top=5):
-    """Averaged amplitude spectrum: is the noise white or does it have tones?"""
+    """Averaged power spectrum of the raw signal: white noise or tones?"""
     if len(x) < 2 * n:
         return
     segs = len(x) // n
@@ -193,6 +193,10 @@ def main():
     ap.add_argument("--dry", help="dry-run directory to subtract")
     ap.add_argument("--plot", action="store_true")
     ap.add_argument("--max-lag", type=float, default=0.5)
+    ap.add_argument("--comb-hz", type=float, default=10.0,
+                    help="remove this tone and its harmonics with a moving\n"
+                         "average over one period (10 Hz = Klipper heater PWM\n"
+                         "with pwm_cycle_time 0.1); 0 disables")
     a = ap.parse_args()
 
     b = load_beacon(a.run)
@@ -214,6 +218,11 @@ def main():
         dry = bd["freq"][wd] - bd["freq"][wd].mean()
         sig = sig - np.interp(t, bd["t"][wd] + off, dry)
 
+    raw = sig.copy()
+    if a.comb_hz > 0:
+        n = max(1, int(round(rate / a.comb_hz)))
+        sig = np.convolve(sig, np.ones(n) / n, mode="same")
+
     def both(hz):
         return "%.3f Hz" % hz + ("  (%.3f µm)" % abs(hz * k_um) if k_um else "")
 
@@ -234,16 +243,20 @@ def main():
     print("signal drift in window: " + both(drift) + " per s")
 
     quiet = flow == 0
-    q = sig[quiet] if (e_moves and quiet.sum() > 50) else sig
+    use_quiet = e_moves and quiet.sum() > 50
+    q = sig[quiet] if use_quiet else sig
+    if a.comb_hz > 0:
+        print("comb filter: %.0f Hz and harmonics removed (%d-sample average)"
+              % (a.comb_hz, n))
     kk = max(1, int(rate * 0.2))
     hp = q - np.convolve(q, np.ones(kk) / kk, mode="same")
-    print("noise (0.2 s high-pass): " + both(hp[kk:-kk].std()) + " RMS")
+    print("noise after filter (0.2 s high-pass): " + both(hp[kk:-kk].std()) + " RMS")
     blocks = len(q) // kk
     if blocks > 3:
         means = q[:blocks * kk].reshape(blocks, kk).mean(axis=1)
         print("noise of 0.2 s averages: " + both(np.diff(means).std() / np.sqrt(2)))
     if not e_moves or not np.any(flow):
-        spectrum_peaks(q, rate, both)   # only meaningful on a quiet run
+        spectrum_peaks(raw, rate, both)   # raw, before the comb filter
 
     if not e_moves or not np.any(flow):
         print("no extrusion in this window, so no flow fit (noise/dry run)")
