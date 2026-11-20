@@ -69,3 +69,28 @@ Send back the run directories (they're small JSONL) and I'll go through them pro
 - The fit assumes the response is linear in flow with a pure delay. Real squeeze flow
   is neither: blob radius grows during `static`. Good enough for yes/no.
 - `analyze.py` was tested against a simulated Klippy socket only, not real hardware.
+
+## Moving PA test (`pa_gen.py` / `pa_analyze.py`)
+
+Klipper and Kalico only apply pressure advance to moves with XY motion
+(`extruder.py`: `can_pressure_advance` needs `axes_d[0] or axes_d[1]`), so
+PA has to be tested while moving.
+
+Each pass is one heavily squished straight line (default 1.0 mm wide at a
+0.2 mm gap) going slow → fast → slow at constant cross-section. With the
+right PA the line stays uniform and the squeeze force stays flat through
+the speed changes. `pa_analyze.py` measures the force blip after each
+speed change (A_up, A_down), combines them into M = A_down − A_up, and fits
+where M crosses zero across the PA values. Passes run in a 0→max→0 order so
+slow drift cancels. A `--dry` run with identical moves removes bed shape and
+gantry-tilt artifacts.
+
+Results so far (K3, 2026-11-20):
+- static blob: clear squeeze signal, ~0.5 µm per mm³/s, ~130 ms lag; air
+  control flat; 10 Hz tones confirmed as heater PWM (gone with heaters off)
+- line test at 0.3 mm gap / 0.6 mm width: not seen (too little squish, and
+  flow was tied to speed)
+
+Validated against a simulator with a planted melt lag τ (ideal PA = τ):
+τ 0.045 → 0.0445 / 0.0451 / 0.049 over three noise seeds. That checks the
+analysis, not the physics; the printer decides whether it works.
