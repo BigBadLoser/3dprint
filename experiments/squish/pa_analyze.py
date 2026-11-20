@@ -244,6 +244,26 @@ def main():
             print("M does not fall as PA rises: no usable PA signal in this run")
         if r2 < 0.5:
             print("  low R²: treat the crossing as rough")
+    # The two halves separately. On the K3 (pa_5) A_up stayed negative at every
+    # PA (squeeze pressure rising with flow, not line width), while A_down
+    # crossed zero where a photo of the lines showed uniform width. So A_down
+    # is the better PA indicator; M is kept for comparison.
+    print("\nper-PA means of each half (blip after speed-up / after slow-down):")
+    for key, name in (("a_up", "A_up"), ("a_down", "A_down")):
+        vals = np.array([r[key] for r in rows])
+        good = np.isfinite(vals)
+        lv = sorted(set(pa_arr[good]))
+        mv = [vals[good & (pa_arr == v)].mean() for v in lv]
+        print("  %-6s " % name + "  ".join("%.3f:%+.3f" % (v, m) for v, m in zip(lv, mv)))
+        cross = None
+        for j in range(len(lv) - 1):
+            if (mv[j] > 0) != (mv[j + 1] > 0):
+                cross = lv[j] + (lv[j + 1] - lv[j]) * mv[j] / (mv[j] - mv[j + 1])
+                break
+        print("         crosses zero at PA ≈ %s" % ("%.4f" % cross if cross is not None
+                                                  else "never (in tested range)"))
+    print("\nA_down's crossing is the current best estimate of PA (it matched line"
+          "\nwidth measured from a photo on the K3); M's crossing ran high.")
     if not dry:
         print("\nwithout --dry, motion artifacts can shift the crossing")
 
