@@ -68,11 +68,14 @@ def passes(run, gap_tol=0.05):
 
 
 def pass_pas(run):
+    """(number of warm-up passes, PA of each measured pass) from the G-code."""
     p = os.path.join(run, "experiment.gcode")
     if not os.path.exists(p):
-        return None
-    return [float(m.group(1)) for m in
-            re.finditer(r"; pass \d+ pa=([\d.]+)", open(p).read())]
+        return 0, None
+    txt = open(p).read()
+    m = re.search(r"; warmup passes: (\d+)", txt)
+    return (int(m.group(1)) if m else 0,
+            [float(x.group(1)) for x in re.finditer(r"; pass \d+ pa=([\d.]+)", txt)])
 
 
 def signal(run, comb_hz=10.0):
@@ -118,11 +121,14 @@ def main():
                                  formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("run")
     ap.add_argument("--dry")
+    ap.add_argument("--skip", default="",
+                    help="comma-separated measured pass numbers to leave out")
     a = ap.parse_args()
 
     t, s, rate, unit = signal(a.run)
     ps = passes(a.run)
-    pas = pass_pas(a.run)
+    nwarm, pas = pass_pas(a.run)
+    ps = ps[nwarm:]
     if not ps:
         sys.exit("no passes found in the toolhead trapq")
     if pas is None or len(pas) != len(ps):
@@ -132,15 +138,18 @@ def main():
     dry = None
     if a.dry:
         td_, sd_, _, _ = signal(a.dry)
-        pd = passes(a.dry)
+        pd = passes(a.dry)[pass_pas(a.dry)[0]:]
         if len(pd) != len(ps):
             sys.exit("dry run has %d passes, wet run %d" % (len(pd), len(ps)))
         dry = (td_, sd_, pd)
 
     print("run: %s  (%d passes, signal in %s%s)"
           % (a.run, len(ps), unit, ", dry subtracted" if dry else ""))
+    skip = {int(x) for x in a.skip.split(",") if x.strip()}
     rows = []
     for i, (p, pa) in enumerate(zip(ps, pas)):
+        if i in skip:
+            continue
         m = (t >= p["t0"] - 0.6) & (t <= p["t1"] + 0.1)
         tp, sp = t[m], s[m].copy()
         if dry:
@@ -149,13 +158,16 @@ def main():
             sp = sp - np.interp(tp, tdry + off, sdry)
         r = metrics(tp, sp, p)
         r["pa"] = pa
+        r["i"] = i
         rows.append(r)
 
+    print("(slow/fast levels relative to the first pass's slow level)")
     print("%4s %7s %9s %9s %9s %9s %9s" % ("pass", "PA", "slow", "fast",
                                           "A_up", "A_down", "M"))
-    for i, r in enumerate(rows):
+    for r in rows:
         print("%4d %7.4f %9.3f %9.3f %9.4f %9.4f %9.4f" % (
-            i, r["pa"], r["slow"], r["fast"], r["a_up"], r["a_down"], r["M"]))
+            r["i"], r["pa"], r["slow"] - rows[0]["slow"], r["fast"] - rows[0]["slow"],
+            r["a_up"], r["a_down"], r["M"]))
 
     pa_arr = np.array([r["pa"] for r in rows])
     M = np.array([r["M"] for r in rows])

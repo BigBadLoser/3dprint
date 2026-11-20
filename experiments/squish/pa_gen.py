@@ -45,7 +45,14 @@ def main():
                                  formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--dry", action="store_true", help="same moves, no extrusion")
     ap.add_argument("--pa-list", default="0,0.02,0.04,0.06,0.08,0.10")
-    ap.add_argument("--repeats", type=int, default=2)
+    ap.add_argument("--repeats", type=int, default=4)
+    ap.add_argument("--warmup", type=int, default=1,
+                    help="unmeasured passes first, at --warmup-pa, to prime")
+    ap.add_argument("--warmup-pa", type=float, default=0.06)
+    ap.add_argument("--dry-retract", type=float, default=1.0,
+                    help="dry run: small retract before the passes")
+    ap.add_argument("--dry-temp", type=int, default=170,
+                    help="dry run nozzle temperature: below flow, so no ooze")
     ap.add_argument("--gap", type=float, default=0.20)
     ap.add_argument("--width", type=float, default=1.0, help="line width, mm")
     ap.add_argument("--v-slow", type=float, default=20.0, help="mm/s")
@@ -70,25 +77,36 @@ def main():
     fs, ff = a.v_slow * 60, a.v_fast * 60
     xa, xb = a.x0 + a.slow_len, a.x1 - a.slow_len
     flow_fast = a.width * a.gap * a.v_fast
+    order = [None] * a.warmup + order
     if a.y + a.row * (len(order) - 1) > 170:
         raise SystemExit("too many rows for the bed; reduce --repeats or --row")
 
     g = [
         "; pa squish test%s: %d passes, PA order %s" % (
-            " (DRY)" if a.dry else "", len(order), ",".join("%g" % p for p in order)),
+            " (DRY)" if a.dry else "", len(order) - a.warmup,
+            ",".join("%g" % p for p in order[a.warmup:])),
         "; line %.2f x %.2f mm, %g -> %g mm/s, %.1f -> %.1f mm3/s" % (
             a.width, a.gap, a.v_slow, a.v_fast,
             a.width * a.gap * a.v_slow, flow_fast),
-        "M109 S%d" % a.temp,
+        "M109 S%d" % (a.dry_temp if a.dry else a.temp),
         "SET_VELOCITY_LIMIT ACCEL=%d" % a.accel,
         "G90",
         "M83",
         "G1 Z5 F600",
+        "; warmup passes: %d" % a.warmup,
     ]
+    if a.dry and a.dry_retract:
+        g.append("G1 E-%.2f F1800 ; retract so the dry run doesn't ooze" % a.dry_retract)
+    k = 0
     for i, pa in enumerate(order):
         y = a.y + i * a.row
+        if pa is None:
+            label, pa = "; warmup pass pa=%.4f" % a.warmup_pa, a.warmup_pa
+        else:
+            label = "; pass %d pa=%.4f" % (k, pa)
+            k += 1
         g += [
-            "; pass %d pa=%.4f" % (i, pa),
+            label,
             "SET_PRESSURE_ADVANCE ADVANCE=%.4f" % pa,
             "G1 X%.2f Y%.2f F9000" % (a.x0, y),
             "G1 Z%.3f F600" % a.gap,
@@ -103,6 +121,10 @@ def main():
                 g.append("G1 X%.3f E%.5f F%.0f" % (x_to, seg * epm, f))
         g += ["G91", "G1 Z%.2f F600" % a.hop, "G90"]
     g += ["M400", "G91", "G1 Z10 F600", "G90", "M400"]
+    if a.dry and a.dry_retract:
+        g.append("G1 E%.2f F600 ; undo the dry-run retract" % a.dry_retract)
+    if a.dry:
+        g.append("M104 S%d ; back to print temperature" % a.temp)
     if a.restore_pa is not None:
         g.append("SET_PRESSURE_ADVANCE ADVANCE=%.4f" % a.restore_pa)
     else:
