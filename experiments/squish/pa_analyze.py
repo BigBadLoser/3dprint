@@ -85,8 +85,9 @@ def signal(run, comb_hz=10.0):
     w, _ = A.test_window(b)
     k = A.um_per_hz(b, w)
     x = b["freq"] - np.median(b["freq"][w])
-    n = max(1, int(round(rate / comb_hz)))
-    x = np.convolve(x, np.ones(n) / n, mode="same")
+    if comb_hz > 0:
+        n = max(1, int(round(rate / comb_hz)))
+        x = np.convolve(x, np.ones(n) / n, mode="same")
     if k:
         return b["t"], x * k, rate, "µm"
     return b["t"], -x, rate, "Hz (sign flipped)"
@@ -121,11 +122,14 @@ def main():
                                  formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("run")
     ap.add_argument("--dry")
+    ap.add_argument("--comb-hz", type=float, default=10.0,
+                    help="moving average over one period of this tone (chamber\n"
+                         "heater PWM); 0 = off, for runs with the chamber heater off")
     ap.add_argument("--skip", default="",
                     help="comma-separated measured pass numbers to leave out")
     a = ap.parse_args()
 
-    t, s, rate, unit = signal(a.run)
+    t, s, rate, unit = signal(a.run, a.comb_hz)
     ps = passes(a.run)
     nwarm, pas = pass_pas(a.run)
     ps = ps[nwarm:]
@@ -137,7 +141,7 @@ def main():
 
     dry = None
     if a.dry:
-        td_, sd_, _, _ = signal(a.dry)
+        td_, sd_, _, _ = signal(a.dry, a.comb_hz)
         pd = passes(a.dry)[pass_pas(a.dry)[0]:]
         if len(pd) != len(ps):
             sys.exit("dry run has %d passes, wet run %d" % (len(pd), len(ps)))
