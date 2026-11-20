@@ -126,6 +126,16 @@ def line_start(moves):
     sys.exit("could not find the start of the line in the toolhead trapq")
 
 
+def flow_levels(flow):
+    """Lowest and highest commanded flow plateaus (ignores accel ramps)."""
+    nz = np.round(flow[flow > 0], 1)
+    vals, counts = np.unique(nz, return_counts=True)
+    keep = vals[counts > 0.05 * len(nz)]
+    if len(keep) == 0:
+        return float(nz.min()), float(nz.max())
+    return float(keep.min()), float(keep.max())
+
+
 def per_cycle_gains(t, sig, flow, lag):
     """Split at the rest periods between pulse groups and fit each alone."""
     on = flow > 0
@@ -265,7 +275,7 @@ def main():
     lags = np.arange(0.0, a.max_lag, 1.0 / rate)
     sse, lag, coef, resid = fit(t, sig, flow, lags)
     gain = coef[0]
-    fmax, fmin = flow.max(), flow[flow > 0].min()
+    fmin, fmax = flow_levels(flow)
     step = gain * (fmax - fmin)
     noise = resid.std()
     print("best lag: %.1f ms" % (lag * 1e3))
