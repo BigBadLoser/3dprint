@@ -126,6 +126,51 @@ def line_start(moves):
     sys.exit("could not find the start of the line in the toolhead trapq")
 
 
+def per_cycle_gains(t, sig, flow, lag):
+    """Split at the rest periods between pulse groups and fit each alone."""
+    on = flow > 0
+    edges = np.flatnonzero(np.diff(on.astype(int)) == 1) + 1
+    if len(edges) < 2:
+        return []
+    bounds = [0] + [(edges[i - 1] + edges[i]) // 2 for i in range(1, len(edges))] + [len(t)]
+    out = []
+    for i in range(len(bounds) - 1):
+        sl = slice(bounds[i], bounds[i + 1])
+        if np.ptp(flow[sl]) == 0:
+            continue
+        _, _, coef, _ = fit(t[sl], sig[sl], flow[sl], [lag])
+        out.append(coef[0])
+    return out
+
+
+def spectrum_peaks(x, rate, both, n=4096, top=5):
+    """Averaged amplitude spectrum: is the noise white or does it have tones?"""
+    if len(x) < 2 * n:
+        return
+    segs = len(x) // n
+    win = np.hanning(n)
+    ps = np.zeros(n // 2 + 1)
+    for i in range(segs):
+        seg = x[i * n:(i + 1) * n]
+        seg = seg - np.polyval(np.polyfit(np.arange(n), seg, 1), np.arange(n))
+        ps += np.abs(np.fft.rfft(seg * win)) ** 2
+    ps /= segs
+    f = np.fft.rfftfreq(n, 1.0 / rate)
+    band = f > 2.0
+    total = ps[band].sum()
+    # fraction of noise power below/above 50 Hz
+    lo = ps[band & (f < 50)].sum() / total
+    print("noise power: %.0f%% below 50 Hz, %.0f%% above" % (lo * 100, (1 - lo) * 100))
+    med = np.median(ps[band])
+    idx = np.flatnonzero(band)
+    cand = [i for i in idx[1:-1] if ps[i] > ps[i - 1] and ps[i] >= ps[i + 1]]
+    cand.sort(key=lambda i: -ps[i])
+    peaks = ["%.1f Hz (%.0fx)" % (f[i], ps[i] / med) for i in cand[:top]
+             if ps[i] > 8 * med]
+    print("spectral tones (x = times the median noise floor): "
+          + (", ".join(peaks) if peaks else "none, noise is broadband"))
+
+
 def fit(t, d, flow, lags):
     """Least squares over lag: d = k*flow(t-lag) + poly2(t) + c."""
     tn = (t - t.mean()) / (np.ptp(t) or 1.0)
@@ -197,6 +242,8 @@ def main():
     if blocks > 3:
         means = q[:blocks * kk].reshape(blocks, kk).mean(axis=1)
         print("noise of 0.2 s averages: " + both(np.diff(means).std() / np.sqrt(2)))
+    if not e_moves or not np.any(flow):
+        spectrum_peaks(q, rate, both)   # only meaningful on a quiet run
 
     if not e_moves or not np.any(flow):
         print("no extrusion in this window, so no flow fit (noise/dry run)")
@@ -211,9 +258,27 @@ def main():
     print("best lag: %.1f ms" % (lag * 1e3))
     print("gain: %+.5f Hz per mm³/s" % gain + (
         "  (%+.4f µm per mm³/s; + = pushed apart)" % (gain * k_um) if k_um else ""))
-    print("lo→hi step (%.1f→%.1f mm³/s): %+.4f Hz vs residual %.4f Hz RMS → SNR %.1f"
-          % (fmin, fmax, step, noise, abs(step) / noise if noise else float("inf")))
-    print("verdict hint: SNR > 5 promising, 1–5 marginal (average more cycles), < 1 not visible")
+    print("lo→hi step (%.1f→%.1f mm³/s): %+.4f Hz" % (fmin, fmax, step)
+          + ("  (%+.3f µm)" % (step * k_um) if k_um else "")
+          + "; per-sample residual %.3f Hz RMS" % noise)
+
+    # Consistency across cycles: refit each cycle separately at the global
+    # lag. A real effect gives the same sign and size every cycle.
+    gains = per_cycle_gains(t, sig, flow, lag)
+    if len(gains) >= 2:
+        g = np.array(gains)
+        se = g.std(ddof=1) / np.sqrt(len(g))
+        tstat = g.mean() / se if se else float("inf")
+        unit = (lambda x: "%+.4f µm" % (x * k_um)) if k_um else (lambda x: "%+.3f Hz" % x)
+        print("per-cycle step (%d cycles): %s" % (
+            len(g), ", ".join(unit(x * (fmax - fmin)) for x in g)))
+        print("cycle-to-cycle t-statistic: %.1f" % abs(tstat))
+        verdict = ("CLEAR signal" if abs(tstat) > 5 else
+                   "marginal: rerun with more --cycles" if abs(tstat) > 3 else
+                   "not seen at this noise level")
+        print("verdict: %s (|t| > 5 clear, 3–5 marginal, < 3 not seen)" % verdict)
+    else:
+        print("need 2+ cycles for a verdict")
 
     if a.plot:
         try:

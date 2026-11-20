@@ -106,7 +106,7 @@ def main():
     ap.add_argument("--flow-hi", type=float, default=10.0, help="mm3/s")
     ap.add_argument("--seg-time", type=float, default=0.8, help="s per flow step")
     ap.add_argument("--rest", type=float, default=1.5, help="s between cycles")
-    ap.add_argument("--cycles", type=int, default=4)
+    ap.add_argument("--cycles", type=int, default=8)
     ap.add_argument("--settle", type=float, default=2.0)
     ap.add_argument("--retract", type=float, default=0.0,
                     help="retract at end (default none, so runs start primed)")
