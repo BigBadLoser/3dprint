@@ -206,16 +206,29 @@ def main():
     M = np.array([r["M"] for r in rows])
     ok = np.isfinite(M)
     print("\nper-PA mean M:")
-    for v in sorted(set(pa_arr[ok])):
+    levels = sorted(set(pa_arr[ok]))
+    means = []
+    for v in levels:
         sel = ok & (pa_arr == v)
+        means.append(M[sel].mean())
         print("  PA %.4f: M %+.4f (n=%d, spread %.4f)" % (
-            v, M[sel].mean(), sel.sum(), M[sel].std() if sel.sum() > 1 else 0))
+            v, means[-1], sel.sum(), M[sel].std() if sel.sum() > 1 else 0))
+    # first sign change in the per-PA means, linearly interpolated: does not
+    # assume M is a straight line over the whole range
+    for j in range(len(levels) - 1):
+        if means[j] > 0 >= means[j + 1]:
+            x = levels[j] + (levels[j + 1] - levels[j]) * means[j] / (means[j] - means[j + 1])
+            print("\nper-PA means cross zero at PA ≈ %.4f (between %.3f and %.3f)"
+                  % (x, levels[j], levels[j + 1]))
+            break
+    else:
+        print("\nper-PA means never cross zero in the tested range")
     if ok.sum() >= 3 and np.ptp(pa_arr[ok]) > 0:
         coef, cov = np.polyfit(pa_arr[ok], M[ok], 1, cov=True)
         slope, icpt = coef
         resid = M[ok] - np.polyval(coef, pa_arr[ok])
         r2 = 1 - resid.var() / M[ok].var() if M[ok].var() > 0 else 0
-        print("\nfit: M = %+.4f %+.4f·PA   (R² %.2f)" % (icpt, slope, r2))
+        print("straight-line fit: M = %+.4f %+.4f·PA   (R² %.2f)" % (icpt, slope, r2))
         if slope < 0:
             pa0 = -icpt / slope
             # delta method for pa0 = -b/a with coef = (a, b)
