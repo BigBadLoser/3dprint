@@ -115,7 +115,10 @@ Found while chasing noisy accelerometer data:
 - **Gantry racked** after an earlier crash caused by unreliable sensorless
   homing (autotune on XY changed StallGuard behaviour). Autotune was kept
   on X/Y with `sg4_thrs` set to the homing thresholds (X 140, Y 120), plus
-  two-stage homing; CoolStep (autotune default semin 2) still active.
+  two-stage homing. 2026-11-22: CoolStep disabled (`semin: 0`) on X/Y and
+  the extruder, extruder run_current 0.6 → 0.8 A, Beacon `home_gcode_pre/post`
+  hooks removed (Kalico clears the stall flag and handles the back-off with
+  `homing_retract_dist` / `min_home_dist`).
 - Standstill accelerometer noise with motors on is unchanged by the repairs
   (~136 / 158 / 88): it comes from the X/Y motors and 2209 drivers in
   spreadCycle, not the mechanics.
