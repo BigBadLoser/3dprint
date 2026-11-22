@@ -88,35 +88,35 @@ Bulk streams are timestamped in **print_time**, so they share a single timebase 
 | Finding | Detail |
 |---|---|
 | Beacon accelerometer orientation | Mounted rotated ~90°: `accel_axes_map: y, -x, z` (was default x,y,z, so earlier shaper results had X and Y swapped) |
-| Resonances (Shake&Tune v6) | X: double peak ~121 + 132 Hz (X motion also excites Y around 120 Hz, likely toolhead twist); Y: single clean ~120 Hz. Old config had X 77.6 / Y 83.2 Hz |
-| Shaper chosen | X MZV 126 Hz, Y MZV 122 Hz; max accel per Shake&Tune ~43–46k mm/s² (config max_accel 10k) |
+| Resonances before repair (Shake&Tune v6) | X: double peak ~121 + 132 Hz (X motion also excites Y around 120 Hz); Y: single ~120 Hz. Old config had X 77.6 / Y 83.2 Hz |
+| Resonances after repair (2026-11-22) | X: single clean peak 132 Hz (ζ 0.025), low-frequency junk and broadband bands gone. Y: dominant 132 Hz (ζ 0.026) plus a small pair at 80.5 / 87 Hz (~25% of main) that survived belt matching; finger test at 85 Hz did not single out the one ASA bracket |
+| Shaper chosen (after repair) | X MZV 131 Hz (ζ 0.025, ~50k mm/s² max), Y EI 126 Hz (ζ 0.026, ~29k mm/s² max) |
 | Intermittent X noise | Low-frequency (10–45 Hz) energy, a 61 Hz peak and broadband bands appeared in 2 of 3 X runs with nothing changed; cause unknown |
 | Driver noise | X/Y 2209s in spreadCycle add a lot of standstill vibration (MEASURE_AXES_NOISE ~9 all off → ~130–180 motors on); position-dependent whine on an X motor; autotune changed whine to hiss but did not lower the numbers |
 | Driver heat | stepper_y1 tripped OTPW at 1.2 A during CREATE_VIBRATIONS_PROFILE; bay fans at 40% |
 | Beacon accel bug | ZeroDivisionError in beacon.py `_process_samples` when a batch has one sample; patched locally (`if count > 1 else 0.0`), reported upstream |
 
-## Mechanical state found (2026-11-20)
+## Mechanical state found (2026-11-20) and repairs (2026-11-22)
 
-These were present during all of the day's motion measurements, so treat
-the shaper results, vibration profile, noise readings and homing thresholds
-as provisional until they are fixed and remeasured.
-
+Found while chasing noisy accelerometer data:
 - **Beacon mount loose (2–3 mm play).** The Beacon hangs from the bottom
-  duct, which is clamped to both 3628 fans with through-bolts (compression
-  stack, printed parts possibly ABS-GF). Bolts had lost preload; re-tightened
-  with Loctite 243. Over-tightening distorts the fan housings (one fan rubbed
-  until loosened and re-snugged). Spring washers suggested to hold preload.
-- **3 of 4 lower XY motor brackets cracked.** Dual-shear mounts; S80 motors
-  with ~80 mm shafts; drive pulley near the intact top bearing, idler pulley
-  at the bottom near the cracked bracket, so the idler belt load bends the
-  shaft. Causes to check before reprinting: belt tension, layer orientation,
-  brittle glass-filled material, screw torque.
-- **Gantry racked:** one side's rail block doesn't reach its end stop when
-  the other does. Each AWD motor homes to its own sensorless endstop, so
-  unreliable homing, the crash and uneven drivetrain stiffness can all rack it.
-- Plan: print replacement brackets on another printer; one batched rebuild
-  (brackets, Beacon mount, optionally 48 V drivers); then recalibrate Beacon,
-  axes map, shaper, vibration profile, homing thresholds and PA.
+  duct, clamped to both 3628 fans with through-bolts. Bolts had lost
+  preload. **Fixed:** re-tightened with Loctite 243 (over-tightening made one
+  fan rub; loosened and re-snugged). Axes map afterwards: mount rotation
+  0.9° (was ~8° off), angle errors X 5.4° / Y 3.9° (was 13.2° / 4.6°).
+- **3 lower + 1 upper XY motor brackets cracked** (dual-shear mounts, S80
+  motors with ~80 mm shafts; each shaft carries its axis's drive pulley near
+  the top bearing and the other axis's idler at the bottom). **Fixed:**
+  replaced, 3 in PPA (printed slightly wet: heavy stringing, layer shifts,
+  sanded to fit, but much stronger than ABS in a vise test) and 1 in ASA.
+  Belts retensioned by feel and matched side to side. Plan to reprint the
+  PPA set from dried filament on the repaired machine.
+- **Gantry racked** after an earlier crash caused by unreliable sensorless
+  homing (autotune on XY changed StallGuard behaviour; reverted to the
+  original driver settings and two-stage homing).
+- Standstill accelerometer noise with motors on is unchanged by the repairs
+  (~136 / 158 / 88): it comes from the X/Y motors and 2209 drivers in
+  spreadCycle, not the mechanics.
 
 ## Measured on the K3 (2026-11-20)
 
