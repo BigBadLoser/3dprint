@@ -91,7 +91,7 @@ Bulk streams are timestamped in **print_time**, so they share a single timebase 
 | Resonances before repair (Shake&Tune v6) | X: double peak ~121 + 132 Hz (X motion also excites Y around 120 Hz); Y: single ~120 Hz. Old config had X 77.6 / Y 83.2 Hz |
 | Resonances after repair (2026-11-22) | X: single clean peak 132 Hz (ζ 0.025), low-frequency junk and broadband bands gone. Y: dominant 132 Hz (ζ 0.026) plus a small pair at 80.5 / 87 Hz (~25% of main) that survived belt matching; finger test at 85 Hz did not single out the one ASA bracket |
 | Shaper chosen (after repair) | X MZV 131 Hz (ζ 0.025, ~50k mm/s² max), Y EI 126 Hz (ζ 0.026, ~29k mm/s² max) |
-| Vibration profile after repair (2026-11-22, 3000 mm/s², shaper on) | Peaks at 61 mm/s (largest, mostly X; full-step rate ~300 Hz meets the motor resonance S&T fits at 275 Hz, ζ 0.116), 103, 128 (mostly Y) and 140 mm/s. Smooth zones: up to 57, 90–100, 107–125 and **168–300 mm/s** (before repair only 107–129, 165–182, 266–284; the ~195 mm/s peak is gone). Symmetry 44%. Header still reports TMC Autotune enabled on X/Y (toff 1, tbl 1, CoolStep semin 2) and a run/hold-current mismatch between stepper_y and stepper_y1 (1.088 A); to check |
+| Vibration profile after repair (2026-11-22, 3000 mm/s², shaper on) | Peaks at 61 mm/s (largest, mostly X; full-step rate ~300 Hz meets the motor resonance S&T fits at 275 Hz, ζ 0.116), 103, 128 (mostly Y) and 140 mm/s. Smooth zones: up to 57, 90–100, 107–125 and **168–300 mm/s** (before repair only 107–129, 165–182, 266–284; the ~195 mm/s peak is gone). Symmetry 44%. Header reports TMC Autotune on X/Y (toff 1, tbl 1, CoolStep semin 2). The "Y motor diff" line was not a real mismatch: config has 1.1 A on both Y motors (1.088 A is the 2209's nearest current step); X/X1 1.2 A |
 | Intermittent X noise | Low-frequency (10–45 Hz) energy, a 61 Hz peak and broadband bands appeared in 2 of 3 X runs with nothing changed; cause unknown |
 | Driver noise | X/Y 2209s in spreadCycle add a lot of standstill vibration (MEASURE_AXES_NOISE ~9 all off → ~130–180 motors on); position-dependent whine on an X motor; autotune changed whine to hiss but did not lower the numbers |
 | Driver heat | stepper_y1 tripped OTPW at 1.2 A during CREATE_VIBRATIONS_PROFILE; bay fans at 40% |
@@ -113,8 +113,9 @@ Found while chasing noisy accelerometer data:
   Belts retensioned by feel and matched side to side. Plan to reprint the
   PPA set from dried filament on the repaired machine.
 - **Gantry racked** after an earlier crash caused by unreliable sensorless
-  homing (autotune on XY changed StallGuard behaviour; reverted to the
-  original driver settings and two-stage homing).
+  homing (autotune on XY changed StallGuard behaviour). Autotune was kept
+  on X/Y with `sg4_thrs` set to the homing thresholds (X 140, Y 120), plus
+  two-stage homing; CoolStep (autotune default semin 2) still active.
 - Standstill accelerometer noise with motors on is unchanged by the repairs
   (~136 / 158 / 88): it comes from the X/Y motors and 2209 drivers in
   spreadCycle, not the mechanics.
