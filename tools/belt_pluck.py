@@ -11,11 +11,11 @@ Record (on the Pi, toolhead parked, motors on):
     cd ~/3dprint && python3 tools/kdata.py record ~/belts/y \\
         --stream beacon/dump_accel --duration 45
 Analyse:
-    python3 tools/belt_pluck.py ~/belts/y --names "Y left,Y right"
+    ~/klippy-env/bin/python tools/belt_pluck.py ~/belts/y --names "Y left,Y right"
 
 Options: --band 40,300 (Hz searched), --span MM and --mass KG_PER_M for a
 rough absolute tension (T = 4 m L^2 f^2; 9 mm GT2 ~0.012 kg/m, 6 mm ~0.008),
---plucks to list every pluck. Needs numpy.
+--plucks to list every pluck. Needs numpy (Klipper's ~/klippy-env has it).
 """
 import argparse
 import json
