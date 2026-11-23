@@ -29,7 +29,12 @@ def load_accel(run):
     meta = json.load(open(os.path.join(run, "meta.json")))
     for spec, s in meta["streams"].items():
         if spec.split(":")[0] == "beacon/dump_accel":
-            path, cols = os.path.join(run, s["file"]), s["header"]["header"]
+            path = os.path.join(run, s["file"])
+            h = s.get("header")
+            # Beacon sends this stream's header as a message, not in the
+            # subscribe reply; its layout is fixed: time, x, y, z
+            cols = (h.get("header") if isinstance(h, dict) else None) \
+                or ["time", "x", "y", "z"]
             break
     else:
         sys.exit("%s: no beacon/dump_accel stream recorded" % run)
@@ -37,8 +42,11 @@ def load_accel(run):
     rows = []
     with open(path) as f:
         for line in f:
-            for r in json.loads(line).get("params") or []:
-                if r is None or r[ix] is None:
+            prm = json.loads(line).get("params")
+            if not isinstance(prm, list):        # e.g. a {"header": ...} message
+                continue
+            for r in prm:
+                if not isinstance(r, (list, tuple)) or len(r) < 4 or r[ix] is None:
                     continue
                 rows.append((r[it], r[ix], r[iy], r[iz]))
     if len(rows) < 1000:
