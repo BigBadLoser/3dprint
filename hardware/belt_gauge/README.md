@@ -20,8 +20,8 @@ draft (render it and check the fit before printing).
 |---|---|
 | Waveshare RP2040-LCD-1.28 | display, USB-C, LiPo connector + charger |
 | HX711 mini breakout | load cell amplifier |
-| Phidgets 3133_0 micro load cell, 5 kg | 55.25 × 12.7 × 12.7 mm, M5 threads |
-| 4 × M5 screws | 2 × ~10 mm (fixed end), 2 × ~16 mm (plunger) |
+| Phidgets 3133_0 micro load cell, 5 kg | 55.25 × 12.7 × 12.7 mm, one M5 threaded hole near each end, 40 mm apart |
+| M5 screws | 1 × M5×16 socket head (fixed end, down into the cell), 1 × M5×20 socket head + M5 nut (plunger, down through the cell into the plunger's nut slot). Don't go longer on the plunger screw: an M5×25 pokes out of the nose |
 | small LiPo (optional) | for cordless use; USB power works too |
 
 Expected plunger force at 30–50 N belt tension: 4.5–7.5 N (0.45–0.75 kg),
