@@ -49,7 +49,7 @@ surface runs at the flow limit.
 
 **Filament → max volumetric speed: 20 mm³/s** until the 0.8 A flow test,
 then ~85% of the fastest flow that passed, and raise the 175s to match
-(every speed up to 300 is in the smooth zone; avoid 128–140).
+(anything from 168 to 300 is in the smooth zone).
 
 ## Accelerations (mm/s²)
 
