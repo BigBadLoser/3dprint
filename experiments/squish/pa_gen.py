@@ -75,6 +75,9 @@ def main():
                     help="macro to run after reaching temperature, e.g.\n"
                          "nozzle_clean")
     ap.add_argument("--restore-pa", type=float)
+    ap.add_argument("--smooth-time", type=float, default=0.04,
+                    help="pressure_advance_smooth_time for the test (s); match\n"
+                         "what the slicer's start G-code sets for prints")
     a = ap.parse_args()
 
     pas = [float(v) for v in a.pa_list.split(",")]
@@ -108,6 +111,7 @@ def main():
         g.append(a.wipe)
     g += [
         "SET_VELOCITY_LIMIT ACCEL=%d" % a.accel,
+        "SET_PRESSURE_ADVANCE SMOOTH_TIME=%.3f" % a.smooth_time,
         "G90",
         "M83",
         "G1 Z5 F600",
