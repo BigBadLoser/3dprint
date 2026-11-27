@@ -12,7 +12,8 @@ speed = flow ÷ 0.112). ASA unless noted. As of 2026-11-24.
 | TEST_SPEED_SAFE | 300 mm/s clean up to 25k; 400 marginal | max_velocity 350 (pending ×20 confirmation; else 300) |
 | Extruder, free air at 0.8 A, 250 °C | > 60 mm³/s without skipping | flow is no longer the limit |
 | Rotation distance | 96 mm out per 100 commanded | `rotation_distance × 0.96` |
-| Pressure advance (squish + photo) | ≈0.045–0.05 | PA 0.05 |
+| Pressure advance (squish + photo), up to ~13 mm³/s | ≈0.045–0.05 | (low flow only, see next row) |
+| Pressure advance (Ellis pattern, 265 mm/s ≈ 33 mm³/s, 6000 mm/s², 260 °C, smooth 0.04; 2026-11-27) | rounded ≤0.025, clean 0.03–0.045, frayed ≥0.05 | **PA 0.035** |
 | Motion limit at this line size | 300 mm/s × 0.112 mm² ≈ 33.5 mm³/s | the usable flow ceiling |
 
 ## Printer config
@@ -99,8 +100,15 @@ Leave at 0 (pressure advance handles transitions).
 |---|---|
 | Max volumetric speed | **30** mm³/s |
 | Extrusion multiplier | 1.00 after the rotation-distance fix (undo any old compensation) |
-| Start G-code | `SET_PRESSURE_ADVANCE ADVANCE=0.05` |
+| Start G-code | `SET_PRESSURE_ADVANCE ADVANCE=0.035 SMOOTH_TIME=0.04` |
 | Cooling: min print speed | 40 (slowed layers drop below the 61 peak) |
+
+PA depends on flow here: 0.05 is right at low flow but frays fast
+corners (the thin cube corners at 0.05), 0.035 is right at ~30 mm³/s.
+Linear PA can't fit both; fast walls win. Nonlinear PA (Kalico bleeding
+edge) is the fix if slow features suffer. The smooth time was briefly
+0.004 by typo, which made 0.05 even worse; PA tests and prints must use
+the same smooth time (`pa_gen.py --smooth-time`).
 
 PPA: PA probably 0.08–0.10 (not measured), and its flow limit is likely
 lower than ASA's; start at 20 mm³/s.
